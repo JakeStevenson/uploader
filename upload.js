@@ -2,6 +2,8 @@ var http = require('http');
 var multipart = require('multipart');
 var sys = require('sys');
 var url = require('url');
+var fs = require("fs");
+var child = require('child_process')
 
 var server = http.createServer(function(req, res) {
   var path = url.parse(req.url).pathname;
@@ -31,8 +33,8 @@ function display_form(req, res) {
   res.end();
 }
 
-function upload_file(req, res) {
-var parser = multipart.parser();
+function parse_multipart(req) {
+    var parser = multipart.parser();
 
     // Make parser use parsed request headers
     parser.headers = req.headers;
@@ -48,29 +50,98 @@ var parser = multipart.parser();
     });
 
     return parser;
+}
+
+function upload_file(req, res) {
+    // Request body is binary
+    req.setBodyEncoding("binary");
+
+     
+    // Handle request as multipart
+    var stream = parse_multipart(req);
 
 
+    var fileName = null;
+    var fileStream = null;
+    var ffmpeg;
 
+    // Set handler for a request part received
+    stream.onPartBegin = function(part) {
+        sys.debug("Started part, name = " + part.name + ", filename = " + part.filename);
+	var outputName = part.filename + ".mp4";
+	ffmpeg = child.spawn('ffmpeg', ['-i', 'pipe:0', outputName]);
 
-  req.setEncoding('binary');
+	ffmpeg.addListener("output", function(data) {
+	  sys.puts("out: " + data);
+	});
+	ffmpeg.addListener("exit", function(code) {
+	  sys.puts("Child process stopped with exit code: " + code);
+	});
+	ffmpeg.addListener("drain", function(){
+	  sys.puts("ready for more!");
+	  req.resume();
+	});
 
-  var stream = multipart.Stream(req);
-  stream.addListener('part', function(part) {
-    part.addListener('body', function(chunk) {
-      var progress = (stream.bytesReceived / stream.bytesTotal * 100).toFixed(2);
-      var mb = (stream.bytesTotal / 1024 / 1024).toFixed(1);
+	ffmpeg.stderr.on('data', function(data){
+		sys.puts("stderr: " + data);
+	//	req.resume();
+	});
+	ffmpeg.stdout.on('data', function(data){
+		sys.puts("strout: " + data);
+	//	req.resume();
+	});
+        // Construct file name
+        //fileName = "./" + stream.part.filename;
 
-      sys.print("Uploading "+mb+"mb ("+progress+"%)\015");
+        // Construct stream used to write to file
+        //fileStream = fs.createWriteStream(fileName);
 
-      // chunk could be appended to a file if the uploaded file needs to be saved
-    });
-  });
-  stream.addListener('complete', function() {
-    res.writeHead(200, {'Content-Type': 'text/plain'});
-    res.sendBody('Thanks for playing!');
-    res.finish();
+        // Add error handler
+        //fileStream.addListener("error", function(err) {
+        //    sys.debug("Got error while writing to file '" + fileName + "': ", err);
+        //});
+
+        // Add drain (all queued data written) handler to resume receiving request data
+        //fileStream.addListener("drain", function() {
+        //    req.resume();
+        //});
+    };
+
+    // Set handler for a request part body chunk received
+    stream.onData = function(chunk) {
+        // Pause receiving request data (until current chunk is written)
+        //req.pause();
+
+        // Write chunk to file
+        // Note that it is important to write in binary mode
+        // Otherwise UTF-8 characters are interpreted
+        sys.debug("Writing chunk");
+        //fileStream.write(chunk, "binary");
+	ffmpeg.stdin.write(chunk, "binary");
+    };
+
+    // Set handler for request completed
+    stream.onEnd = function() {
+        // As this is after request completed, all writes should have been queued by now
+        // So following callback will be executed after all the data is written out
+        //fileStream.addListener("drain", function() {
+            // Close file stream
+        //    fileStream.end();
+            // Handle request completion, as all chunks were already written
+            upload_complete(res);
+        //});
+    };
+}
+
+function upload_complete(res) {
+    sys.debug("Request complete");
+
+    // Render response
+    res.sendHeader(200, {"Content-Type": "text/plain"});
+    res.write("Thanks for playing!");
+    res.end();
+
     sys.puts("\n=> Done");
-  });
 }
 
 function show_404(req, res) {
