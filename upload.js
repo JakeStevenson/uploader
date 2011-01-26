@@ -17,7 +17,7 @@ http.createServer(function(req, res){
       sys.puts("PAPERBOY!");
     })
     .after(function(statCode) {
-      sys.puts(statCode);    
+      sys.puts("Delivered: " + req.url);    
     })
     .error(function(statCode, msg) {
       res.writeHead(statCode, {'Content-Type': 'text/plain'});
@@ -85,12 +85,15 @@ function upload_file(req, res) {
     stream.onPartBegin = function(part) {
         sys.debug("Started part, name = " + part.name + ", filename = " + part.filename);
 	outputName = part.filename + ".mp4";
-	ffmpeg = child.spawn('ffmpeg', ['-y', '-i', 'pipe:0', "static/" + outputName]);
+	var ffmpegArgs = ['-i', 'pipe:0', '-y', '-acodec', 'libfaac', '-ab', '96k', '-vcodec', 'libx264', '-vpre', 'medium', '-threads', '0', 'static/'+outputName];
+	sys.puts(ffmpegArgs.join(' '));
+	ffmpeg = child.spawn('ffmpeg', ffmpegArgs);
 
 	ffmpeg.addListener("output", function(data) {
 	  sys.puts("out: " + data);
 	});
 	ffmpeg.addListener("exit", function(code) {
+	  upload_complete(res, req); 
 	  sys.puts("Child process stopped with exit code: " + code);
 	});
 	ffmpeg.addListener("drain", function(){
@@ -113,7 +116,7 @@ function upload_file(req, res) {
 
     // Set handler for request completed
     stream.onEnd = function() {
-            upload_complete(res, req);
+            //upload_complete(res, req);
 	    sys.puts("Complete " + req.url);
     };
 }
@@ -126,7 +129,7 @@ function upload_complete(res, req) {
 
     // Render response
     res.writeHead(200, {'Content-Type': 'text/html'});
-    res.write("<video src='"+link+"'/>");
+    res.write("<video controls autoplay autobuffer width='640' height='480'><source src='"+link+"'/></video>");
     //res.write("<a href='"+ link + "'>Thanks for playing!</a>");
     res.end();
 
