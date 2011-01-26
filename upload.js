@@ -1,9 +1,10 @@
-var http = require('http');
-var multipart = require('multipart');
-var sys = require('sys');
-var url = require('url');
-var fs = require("fs");
-var child = require('child_process')
+var http = require('http'),
+    multipart = require('multipart'),
+    sys = require('sys'),
+    url = require('url'),
+    fs = require("fs"),
+    child = require('child_process'),
+    outputName;
 
 var server = http.createServer(function(req, res) {
   var path = url.parse(req.url).pathname;
@@ -35,12 +36,9 @@ function display_form(req, res) {
 
 function parse_multipart(req) {
     var parser = multipart.parser();
-
-    // Make parser use parsed request headers
     parser.headers = req.headers;
 
     // Add listeners to request, transfering data to parser
-
     req.addListener("data", function(chunk) {
         parser.write(chunk);
     });
@@ -53,23 +51,18 @@ function parse_multipart(req) {
 }
 
 function upload_file(req, res) {
-    // Request body is binary
     req.setBodyEncoding("binary");
 
-     
-    // Handle request as multipart
     var stream = parse_multipart(req);
 
-
-    var fileName = null;
     var fileStream = null;
     var ffmpeg;
 
     // Set handler for a request part received
     stream.onPartBegin = function(part) {
         sys.debug("Started part, name = " + part.name + ", filename = " + part.filename);
-	var outputName = part.filename + ".mp4";
-	ffmpeg = child.spawn('ffmpeg', ['-i', 'pipe:0', outputName]);
+	outputName = part.filename + ".mp4";
+	ffmpeg = child.spawn('ffmpeg', ['-y', '-i', 'pipe:0', outputName]);
 
 	ffmpeg.addListener("output", function(data) {
 	  sys.puts("out: " + data);
@@ -84,52 +77,20 @@ function upload_file(req, res) {
 
 	ffmpeg.stderr.on('data', function(data){
 		sys.puts("stderr: " + data);
-	//	req.resume();
 	});
 	ffmpeg.stdout.on('data', function(data){
 		sys.puts("strout: " + data);
-	//	req.resume();
 	});
-        // Construct file name
-        //fileName = "./" + stream.part.filename;
-
-        // Construct stream used to write to file
-        //fileStream = fs.createWriteStream(fileName);
-
-        // Add error handler
-        //fileStream.addListener("error", function(err) {
-        //    sys.debug("Got error while writing to file '" + fileName + "': ", err);
-        //});
-
-        // Add drain (all queued data written) handler to resume receiving request data
-        //fileStream.addListener("drain", function() {
-        //    req.resume();
-        //});
     };
 
     // Set handler for a request part body chunk received
     stream.onData = function(chunk) {
-        // Pause receiving request data (until current chunk is written)
-        //req.pause();
-
-        // Write chunk to file
-        // Note that it is important to write in binary mode
-        // Otherwise UTF-8 characters are interpreted
-        sys.debug("Writing chunk");
-        //fileStream.write(chunk, "binary");
 	ffmpeg.stdin.write(chunk, "binary");
     };
 
     // Set handler for request completed
     stream.onEnd = function() {
-        // As this is after request completed, all writes should have been queued by now
-        // So following callback will be executed after all the data is written out
-        //fileStream.addListener("drain", function() {
-            // Close file stream
-        //    fileStream.end();
-            // Handle request completion, as all chunks were already written
             upload_complete(res);
-        //});
     };
 }
 
@@ -137,8 +98,8 @@ function upload_complete(res) {
     sys.debug("Request complete");
 
     // Render response
-    res.sendHeader(200, {"Content-Type": "text/plain"});
-    res.write("Thanks for playing!");
+    res.writeHead(200, {'Content-Type': 'text/html'});
+    res.write("<a href='"+outputName + "'>Thanks for playing!</a>");
     res.end();
 
     sys.puts("\n=> Done");
