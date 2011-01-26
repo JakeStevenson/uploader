@@ -4,11 +4,35 @@ var http = require('http'),
     url = require('url'),
     fs = require("fs"),
     child = require('child_process'),
+    paperboy = require('paperboy'),
+    path = require('path'),
+    WEBROOT = path.join(path.dirname(__filename), 'static'),
     outputName;
 
-var server = http.createServer(function(req, res) {
+sys.puts("Static files at " + WEBROOT);
+http.createServer(function(req, res){
+  paperboy
+    .deliver(WEBROOT, req, res)
+    .before(function() {
+      sys.puts("PAPERBOY!");
+    })
+    .after(function(statCode) {
+      sys.puts(statCode);    
+    })
+    .error(function(statCode, msg) {
+      res.writeHead(statCode, {'Content-Type': 'text/plain'});
+      res.end("Error " + statCode);
+      sys.puts("Error: " + msg);
+    })
+  .otherwise(function(err) {
+      res.writeHead(404, {'Content-Type': 'text/plain'});
+      res.end("Error 404: File not found");
+      sys.puts(err);
+    });
+}).listen(8080);
+http.createServer(function(req, res) {
   var path = url.parse(req.url).pathname;
-  sys.puts(path);
+  sys.puts(req.url);
   switch (path) {
     case '/':
       display_form(req, res);
@@ -20,8 +44,7 @@ var server = http.createServer(function(req, res) {
       show_404(req, res);
       break;
   }
-});
-server.listen(8000);
+}).listen(8000); 
 
 function display_form(req, res) {
   res.writeHead(200, {'Content-Type': 'text/html'});
@@ -62,7 +85,7 @@ function upload_file(req, res) {
     stream.onPartBegin = function(part) {
         sys.debug("Started part, name = " + part.name + ", filename = " + part.filename);
 	outputName = part.filename + ".mp4";
-	ffmpeg = child.spawn('ffmpeg', ['-y', '-i', 'pipe:0', outputName]);
+	ffmpeg = child.spawn('ffmpeg', ['-y', '-i', 'pipe:0', "static/" + outputName]);
 
 	ffmpeg.addListener("output", function(data) {
 	  sys.puts("out: " + data);
@@ -90,16 +113,21 @@ function upload_file(req, res) {
 
     // Set handler for request completed
     stream.onEnd = function() {
-            upload_complete(res);
+            upload_complete(res, req);
+	    sys.puts("Complete " + req.url);
     };
 }
 
-function upload_complete(res) {
+function upload_complete(res, req) {
     sys.debug("Request complete");
+    sys.puts(req.url);
+    var parsed = url.parse(req.url);
+    var link = "http://192.168.1.91:8080/" + outputName;
 
     // Render response
     res.writeHead(200, {'Content-Type': 'text/html'});
-    res.write("<a href='"+outputName + "'>Thanks for playing!</a>");
+    res.write("<video src='"+link+"'/>");
+    //res.write("<a href='"+ link + "'>Thanks for playing!</a>");
     res.end();
 
     sys.puts("\n=> Done");
